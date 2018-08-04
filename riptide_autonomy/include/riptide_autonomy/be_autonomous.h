@@ -97,9 +97,11 @@ public:
 
   // Task Specific Objects
   TSlam* tslam;
-  double relative_current_x, relative_current_y;
+  double relative_current_x, relative_current_y, tslam_velocity;
 
   CasinoGate* casino_gate;
+  int black_side;
+
   PathMarker* path;
   DiceHop* dice_hop;
   Dice* dice;
