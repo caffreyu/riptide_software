@@ -40,6 +40,7 @@ void CasinoGate::Start()
   gate_width = master->tasks["tasks"][master->task_id]["gate_width"].as<double>();
   pass_thru_duration = master->tasks["tasks"][master->task_id]["pass_thru_duration"].as<double>();
   heading_offset = master->tasks["tasks"][master->task_id]["heading_offset"].as<double>();
+  depth_offset = 0;
   black_side = master->black_side;
   ROS_INFO("CasinoGate: Loaded variables from tasks yaml");
   ROS_INFO("CasinoGate: Black side (0->left, 1->right): %i", black_side);
@@ -62,7 +63,8 @@ void CasinoGate::Start()
   task_bbox_sub = master->nh.subscribe<darknet_ros_msgs::BoundingBoxes>("/task/bboxes", 1, &CasinoGate::IDCasinoGate, this);
   ROS_INFO("CasinoGate: Looking for %s. Subscribed to /task/bboxes", object_name.c_str());
 
-  /*master->tslam->SetEndPos();
+  /*master->tslam->Abort(false);
+  master->tslam->SetEndPos();
   CasinoGate::Abort();
   master->LaunchTSlam();*/
 }
