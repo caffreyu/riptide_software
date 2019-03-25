@@ -47,9 +47,7 @@ class ThrusterController
 
   // New publisher for the new EoM
   ros::Publisher NEOM;
-  // riptide_msgs::ThrusterResiduals residuals;
 
-  // Vector3d pos_buoyancy;
   double Mass, Volume, Weight, Buoyancy, Jxx, Jyy, Jzz;
   YAML::Node Vehicle_Properties;
   std::vector<int> ThrustersEnabled; // To check if there are any thrusters down
@@ -59,8 +57,6 @@ class ThrusterController
   MatrixXd Thrusters;
   Vector3d COB;
   int numThrusters;
-
-
 
   double mass_inertia[6]; // First three are mass of vehicle, last three are intertia
 
@@ -83,12 +79,8 @@ class ThrusterController
   ceres::Solver::Summary NewSummary;
 
   double pos_buoyancy[3]; // Solved center of buoyancy stored here
-  // std::vector<Vector3d> pos_buoyancy_eig;
   bool isBuoyant;
-  // Vector3d Fb;
   double buoyancyCoeffs[3];
-
-  // MatrixXd MomentCoeffs_eig;
 
   // Rotation Matrices: world to body, and body to world
   // Angular Velocity
@@ -110,7 +102,6 @@ class ThrusterController
   void LoadParam(std::string param, T &var);
   void LoadVehicleProperties();
   void SetThrusterCoeffs();
-  // void SetBuoyancyCoeffs();
   void InitThrustMsg();
   void DynamicReconfigCallback(riptide_controllers::VehiclePropertiesConfig &config, uint32_t levels);
   void ImuCB(const riptide_msgs::Imu::ConstPtr &imu_msg);
@@ -188,7 +179,6 @@ class tuneCOB {
         residual[i] = residual[i] + buoyancyCoeffs[0] * (-1) * pos_buoyancy[1] + buoyancyCoeffs[1] * pos_buoyancy[0];
       }
       residual[i] = residual[i] + T(transportThm[i + 3]);
-      residual[i] = residual[i] / T(mass_inertia[i + 3]) - T(command[i + 3]);
     }
   }
 };
@@ -205,77 +195,6 @@ double MIN_THRUST = -24.0;
 double MAX_THRUST = 24.0;
 
 
-// NOTE: It seems that ceres already tries to minimze all outputs as it solves.
-// Hence, it seems unnecessary to add two more equations to create a
-// SLE (system of linear eqns) composed of 8 equations and 8 unknowns)
-
-/******************************* Tune Buoyancy ********************************/
-// Purpose: Find the Center of Buoyancy (CoB)
-// These equations ASSUME the vehicle is stationary in the water, attempting to
-// reach a target orientation, but is unable to reach the said target because
-// the moments due to buoyancy have not been factored into the angular eqns yet.
-// The publised output will be the location of the CoB in relation to the CoM
-// NOTE: Vehicle MUST be roughly stationary for output to make physical sense
-
-// Tune Roll
-// Thrusters contributing to a POSITIVE moment: sway_fwd, sway_aft, heave_port_fwd, heave_port_aft
-// Thrusters contributting to a NEGATIVE moment: heave_stbd_fwd, heave_stbd_aft
-// Buoyancy Y and Z components produce moments about x-axis
-
-/*
-struct tuneRoll
-{
-  template <typename T>
-  bool operator()(const T *const pos_buoyancy_y, const T *const pos_buoyancy_z, T *residual) const
-  {
-    residual[0] = T(R_w2b.getRow(1).z()) * T(buoyancy) * (-pos_buoyancy_z[0]) +
-                  T(R_w2b.getRow(2).z()) * T(buoyancy) * pos_buoyancy_y[0] +
-                  T(sway_fwd) * T(-pos_sway_fwd.z) + T(sway_aft) * T(-pos_sway_aft.z) +
-                  T(heave_port_fwd) * T(pos_heave_port_fwd.y) + T(heave_port_aft) * T(pos_heave_port_aft.y) +
-                  T(heave_stbd_fwd) * T(pos_heave_stbd_fwd.y) + T(heave_stbd_aft) * T(pos_heave_stbd_aft.y) -
-                  (T(ang_v.z()) * T(ang_v.y())) * (T(Izz) - T(Iyy));
-    return true;
-  }
-};
-
-// Tune Pitch
-// Thrusters contributing to a POSITIVE moment: heave_port_aft, heave_stbd_aft
-// Thrusters contributting to a NEGATIVE moment: surge_port_lo, surge_stbd_lo, heave_port_fwd, heave_stbd_fwd
-// Buoyancy X and Z components produce moments about y-axis
-struct tunePitch
-{
-  template <typename T>
-  bool operator()(const T *const pos_buoyancy_x, const T *const pos_buoyancy_z, T *residual) const
-  {
-    residual[0] = T(R_w2b.getRow(0).z()) * T(buoyancy) * pos_buoyancy_z[0] +
-                  T(R_w2b.getRow(2).z()) * T(buoyancy) * (-pos_buoyancy_x[0]) +
-                  T(surge_port_lo) * T(pos_surge_port_lo.z) + T(surge_stbd_lo) * T(pos_surge_stbd_lo.z) +
-                  T(heave_port_aft) * T(-pos_heave_port_aft.x) + T(heave_stbd_aft) * T(-pos_heave_stbd_aft.x) +
-                  T(heave_port_fwd) * T(-pos_heave_port_fwd.x) + T(heave_stbd_fwd) * T(-pos_heave_stbd_fwd.x) -
-                  (T(ang_v.x()) * T(ang_v.z())) * (T(Ixx) - T(Izz));
-    return true;
-  }
-};
-
-// Tune Yaw
-// Thrusters contributing to a POSITIVE moment: surge_stbd_lo, sway_fwd
-// Thrusters contributting to a NEGATIVE moment: surge_port_lo, sway_aft
-// Buoyancy X and Y components produce moments about z-axis
-struct tuneYaw
-{
-  template <typename T>
-  bool operator()(const T *const pos_buoyancy_x, const T *const pos_buoyancy_y, T *residual) const
-  {
-    residual[0] = T(R_w2b.getRow(0).z()) * T(buoyancy) * (-pos_buoyancy_y[0]) +
-                  T(R_w2b.getRow(1).z()) * T(buoyancy) * (pos_buoyancy_x[0]) +
-                  T(surge_port_lo) * T(-pos_surge_port_lo.y) + T(surge_stbd_lo) * T(-pos_surge_stbd_lo.y) +
-                  T(sway_fwd) * T(pos_sway_fwd.x) + T(sway_aft) * T(pos_sway_aft.x) -
-                  (T(ang_v.y()) * T(ang_v.x())) * (T(Iyy) - T(Ixx));
-    return true;
-  }
-};
-
-*/
 /************************** Reconfigure Active Thrusters **********************/
 // These structs are used only if a thruster is down (problem with the copro,
 // thruster itself, etc.). They will force ceres to set their thrust output to

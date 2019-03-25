@@ -52,7 +52,6 @@ ThrusterController::ThrusterController(char **argv) : nh("thruster_controller") 
   // Debug variables
   if(debug_controller) {
     buoyancy_pub = nh.advertise<geometry_msgs::Vector3Stamped>("/debug/pos_buoyancy", 1);
-
     // Published in a message
     buoyancy_pos.vector.x = 0;
     buoyancy_pos.vector.y = 0;
@@ -70,8 +69,8 @@ ThrusterController::ThrusterController(char **argv) : nh("thruster_controller") 
   NewProblem.AddResidualBlock(new ceres::AutoDiffCostFunction<EOM, 6, 8>(new EOM(&numThrusters, ThrusterCoeffs_eig, mass_inertia, weightLoad, transportThm, command)), NULL, forces);
   NewOptions.max_num_iterations = 100;
   NewOptions.linear_solver_type = ceres::DENSE_QR;
-  /////////////////////////////////////////////////////////////////////////////
 
+  /////////////////////////////////////////////////////////////////////////////
   // NEW BUOYANCY PROBLEM
   buoyancyProblem.AddResidualBlock(new ceres::AutoDiffCostFunction<tuneCOB, 1, 3>(new tuneCOB(&numThrusters, Thrusters, mass_inertia, weightLoad, transportThm, command, forces, buoyancyCoeffs)), NULL, pos_buoyancy);
   buoyancyOptions.max_num_iterations = 50;
@@ -81,7 +80,6 @@ ThrusterController::ThrusterController(char **argv) : nh("thruster_controller") 
   options.minimizer_progress_to_stdout = true;
 #endif
 }
-
 
 // Load parameter from namespace
 template <typename T>
@@ -110,13 +108,11 @@ void ThrusterController::LoadVehicleProperties() {
   Jxx = Vehicle_Properties["Properties"]["Inertia"][0].as<double>();
   Jyy = Vehicle_Properties["Properties"]["Inertia"][1].as<double>();
   Jzz = Vehicle_Properties["Properties"]["Inertia"][2].as<double>();
-
   
   for (int i = 0; i < 3; i++) {
     COB[i] = Vehicle_Properties["Properties"]["COB"][i].as<double>();
   }
   
-
   mass_inertia[0] = Mass;
   mass_inertia[1] = Mass;
   mass_inertia[2] = Mass;
@@ -168,13 +164,6 @@ void ThrusterController::SetThrusterCoeffs() {
     }
   }
 }
-
-/*
-void ThrusterController::SetBuoyancyCoeffs() {
-  Buoyancy = Volume * GRAVITY * WATER_DENSITY;
-  
-}
-*/
 
 void ThrusterController::InitThrustMsg()
 {
@@ -240,7 +229,7 @@ void ThrusterController::ImuCB(const riptide_msgs::Imu::ConstPtr &imu_msg)
   Fb(1) = -Buoyancy * sin(phi) * cos(theta);
   Fb(2) = -Buoyancy * cos(phi) * cos(theta);
 
-  weightLoad_eig.segment<3>(3) = COB.cross(Fb); // Used to be COB.cross(Fb);
+  weightLoad_eig.segment<3>(3) = COB.cross(Fb); 
   weightLoad_eig = weightLoad_eig * ((int)(isBuoyant));
   Map<RowMatrixXd>(&weightLoad[0], weightLoad_eig.rows(), weightLoad_eig.cols()) = weightLoad_eig;
   
@@ -288,14 +277,6 @@ void ThrusterController::AccelCB(const geometry_msgs::Accel::ConstPtr &a) {
   thrust.force.surge_stbd_lo = -forces[7];
   NEOM.publish(thrust);
 
-  // std::cout << forces[0] << std::endl;
-
-  // Tune Buoyancy - locate the center of buoyancy
-  // The output will only make sense if the depth, roll, and pitch controllers
-  // are initialized, and the vehicle is roughly stationary in the water.
-  // The output should contain non-zero distances so long as the the vehicle is
-  // unable to reach a target orientation along any axis.
-  // The depth controller is used only to keep the vehicle fully submerged
   if(debug_controller) {
   // Initialize values
     for (int i = 0; i < 3; i++) {
@@ -308,11 +289,6 @@ void ThrusterController::AccelCB(const geometry_msgs::Accel::ConstPtr &a) {
     buoyancy_pos.vector.y = pos_buoyancy[1];
     buoyancy_pos.vector.z = pos_buoyancy[2];
     buoyancy_pub.publish(buoyancy_pos);
-    std::cout << pos_buoyancy[0] << std::endl;
-    for (int i = 0; i < 3; i++) {
-      COB[i] = pos_buoyancy[i];
-    }
-    
   }
 }
 
