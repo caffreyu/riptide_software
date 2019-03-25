@@ -1,0 +1,3 @@
+<launch>
+  <node pkg="riptide_hardware" type="test_sub_pub" name="test_sub_pub" output="screen" />
+</launch>

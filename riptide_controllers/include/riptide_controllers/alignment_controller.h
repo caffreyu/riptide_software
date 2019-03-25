@@ -22,7 +22,12 @@ class AlignmentController
     // Comms
     ros::NodeHandle nh;
     ros::Subscriber alignment_cmd_sub, object_sub, depth_sub, reset_sub, task_info_sub;
-    ros::Publisher x_pub, y_pub, depth_pub, status_pub;
+    // alignment_cmd_sub is /command/alignment; object_sub is /state/object;
+    // depth_sub is /state/depth; reset_sub is /controls/reset;
+    // task_info_sub is /task/info
+    ros::Publisher x_pub, y_pub, depth_pub, status_pub; 
+    // x_pub is /command/accel_linear_x; y_pub is /command/accel_linear_y; 
+    // depth_pub is /command/depth; status_pub is /status/controls/linear
     ros::Timer timer;
 
     // IIR Filter variables for error_dot

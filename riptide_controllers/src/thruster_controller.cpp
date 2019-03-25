@@ -12,7 +12,9 @@ int main(int argc, char **argv)
 }
 
 ThrusterController::ThrusterController(char **argv) : nh("thruster_controller") {
-  // Load parameters from .yaml files or launch files
+  // Load the vehicle properties yaml file 
+  Vehicle_Properties::YAML::LoadFile("../osu-uwrt/riptide_software/src/riptide_controllers/cfg/vehicle_properties2.yaml");
+  
   nh.getParam("debug", debug_controller);
   ThrusterController::LoadParam("buoyancy_depth_thresh", buoyancy_depth_thresh); // Depth threshold to include buoyancy
 
@@ -85,14 +87,17 @@ ThrusterController::ThrusterController(char **argv) : nh("thruster_controller") 
   ang_v.setZero();
 
   isBuoyant = false;
-  weight = mass*GRAVITY;
-  buoyancy = volume*WATER_DENSITY*GRAVITY;
+  weight = mass * GRAVITY;
+  buoyancy = volume * WATER_DENSITY * GRAVITY;
 
   state_sub = nh.subscribe<riptide_msgs::Imu>("/state/imu", 1, &ThrusterController::ImuCB, this);
   depth_sub = nh.subscribe<riptide_msgs::Depth>("/state/depth", 1, &ThrusterController::DepthCB, this);
   cmd_sub = nh.subscribe<geometry_msgs::Accel>("/command/accel", 1, &ThrusterController::AccelCB, this);
   cmd_pub = nh.advertise<riptide_msgs::ThrustStamped>("/command/thrust", 1);
   residual_pub = nh.advertise<riptide_msgs::ThrusterResiduals>("/status/controls/thruster", 1);
+  
+  // New publisher for using eigen
+  NEoM = nh.advertise<riptide_msgs::ThrustStamped>("test/new_EoM", 1);
 
   // Dynamic Reconfigure Variables
   cb = boost::bind(&ThrusterController::DynamicReconfigCallback, this, _1, _2);
@@ -108,6 +113,7 @@ ThrusterController::ThrusterController(char **argv) : nh("thruster_controller") 
     buoyancy_pos.vector.z = 0;
   }
 
+  ThrusterController::LoadVehicleProperties();
   ThrusterController::InitThrustMsg();
 
   google::InitGoogleLogging(argv[0]);
@@ -207,6 +213,21 @@ void ThrusterController::LoadParam(std::string param, T &var)
   }
 }
 
+void ThrusterController::LoadVehicleProperties()
+{
+  M = Vehicle_Properties["properties"]["mass"].as<double>();
+  V = Vehicle_Properties["properties"]["mass"].as<double>();
+
+  for (int i = 0; i < 3; i++) 
+  {
+    CoB[i] = Vehicle_Properties["properties"]["CoB"][0].as<double>();
+  }
+
+  Jx = Vehicle_Properties["properties"]["Inertia"][0].as<double>();
+  Jy = Vehicle_Properties["properties"]["Inertia"][1].as<double>();
+  Jz = Vehicle_Properties["properties"]["Inertia"][2].as<double>();
+}
+
 void ThrusterController::InitThrustMsg()
 {
   riptide_msgs::ThrustStamped thrust;
@@ -220,19 +241,21 @@ void ThrusterController::InitThrustMsg()
   thrust.force.heave_stbd_fwd = 0;
   thrust.force.heave_port_fwd = 0;
   cmd_pub.publish(thrust);
+  NEoM.publish(thrust);
 }
 
 // Callback for dynamic reconfigure
 void ThrusterController::DynamicReconfigCallback(riptide_controllers::VehiclePropertiesConfig &config, uint32_t levels) {
-  if(debug_controller) {
+  if(debug_controller) 
+  {
     mass = config.Mass;
     volume = config.Volume;
     pos_buoyancy.x = config.Buoyancy_X_POS;
     pos_buoyancy.y = config.Buoyancy_Y_POS;
     pos_buoyancy.z = config.Buoyancy_Z_POS;
 
-    weight = mass*GRAVITY;
-    buoyancy = volume*WATER_DENSITY*GRAVITY;
+    weight = mass * GRAVITY;
+    buoyancy = volume * WATER_DENSITY * GRAVITY;
   }
 }
 
@@ -248,6 +271,24 @@ void ThrusterController::ImuCB(const riptide_msgs::Imu::ConstPtr &imu_msg)
   //Get angular velocity and convert to [rad/s]
   vector3MsgToTF(imu_msg->ang_vel, ang_v);
   ang_v.setValue(ang_v.x()*PI/180, ang_v.y()*PI/180, ang_v.y()*PI/180);
+
+  // Data for the new EoM
+  WEIGHT = MASS * GRAVITY;
+  BUOYANCY = VOLUME * GRAVITY * WATER_DENSITY;
+
+  float phi = imu_msg->euler_rpy.x * PI / 180;
+  float theta = imu_msg->euler_rpy.y * PI / 180;
+  float p = imu_msg->ang_vel.x;
+  float q = imu_msg->ang_vel.y;
+  float r = imu_msg->ang_vel.z;
+
+  weightLoad[0] = (-1) * (WEIGHT - BUOYANCY) * sin(theta);
+  weightLoad[1] = (WEIGHT - BUOYANCY) * sin(phi) * cos(theta);
+  weightLoad[2] = (WEIGHT - BUOYANCY) * cos(phi) * cos(theta);
+
+  transportThm[3] = (-1) * q * r * (Jz - Jy);
+  transportThm[4] = (-1) * p * r * (Jx - Jz);
+  transportThm[5] = (-1) * p * q * (Jy - Jx);
 }
 
 //Get depth and determine if buoyancy should be included

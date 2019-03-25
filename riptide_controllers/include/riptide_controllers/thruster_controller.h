@@ -20,6 +20,13 @@
 #include "riptide_msgs/ThrustStamped.h"
 #include "riptide_msgs/ThrusterResiduals.h"
 
+#include "yaml-cpp/yaml.h"
+#include "eigen3/Eigen/Eigen"
+using namespace Eigen;
+
+typedef Matrix<double, 6, 1> Vector6d;
+typedef Matrix<double, Dynamic, Dynamic, RowMajor> RowMatrixXd;
+
 #define PI 3.141592653
 #define GRAVITY 9.81 //[m/s^2]
 #define WATER_DENSITY 1000.0 //[kg/m^3]
@@ -29,8 +36,8 @@ class ThrusterController
  private:
   // Comms
   ros::NodeHandle nh;
-  ros::Subscriber state_sub, cmd_sub, depth_sub, mass_vol_sub, buoyancy_sub;
-  ros::Publisher cmd_pub, buoyancy_pub, residual_pub;
+  ros::Subscriber state_sub, depth_sub, buoyancy_sub;
+  ros::Publisher buoyancy_pub, residual_pub;
   riptide_msgs::ThrustStamped thrust;
   riptide_msgs::ThrusterResiduals residuals;
 
@@ -38,10 +45,57 @@ class ThrusterController
   dynamic_reconfigure::Server<riptide_controllers::VehiclePropertiesConfig> server;
   dynamic_reconfigure::Server<riptide_controllers::VehiclePropertiesConfig>::CallbackType cb;
 
-  // Primary EOMs
-  ceres::Problem problem;
-  ceres::Solver::Options options;
-  ceres::Solver::Summary summary;
+  // New publisher for the new EoM
+  ros::Publisher NEOM;
+  // riptide_msgs::ThrusterResiduals residuals;
+
+  // Vector3d pos_buoyancy;
+  double Mass, Volume, Weight, Buoyancy, Jxx, Jyy, Jzz;
+  YAML::Node Vehicle_Properties;
+  std::vector<int> ThrustersEnabled; // To check if there are any thrusters down
+  std::vector<Vector6d> ThrusterCoeffs;
+  Vector6d weightLoad_eig;
+  MatrixXd ThrusterCoeffs_eig;
+  MatrixXd Thrusters;
+  Vector3d COB;
+  int numThrusters;
+
+
+
+  double mass_inertia[6]; // First three are mass of vehicle, last three are intertia
+
+  double weightLoad[6]; // Influences of weight and buoyancy force; 
+                        // (mg - buyancy force) * sin()cos() for the first three
+                        // buyancy force * distance for the last three
+
+  double transportThm[6]; // First three are set to 0 (do not have the translational speed)
+                          // Last three are -qr(Jzz - Jyy) -pr(Jxx - Jzz) -pq(Jyy - Jxx)
+
+  double command[6]; // First three are translational acceleration
+                     // Last three are angular translational acceleration (Both from imu)
+
+  double forces[8]; // Results we want from using ceres
+                    // Solved forces stored here
+
+  // Ceres for the new problem of using eigen
+  ceres::Problem NewProblem;
+  ceres::Solver::Options NewOptions;
+  ceres::Solver::Summary NewSummary;
+
+  double pos_buoyancy[3]; // Solved center of buoyancy stored here
+  // std::vector<Vector3d> pos_buoyancy_eig;
+  bool isBuoyant;
+  // Vector3d Fb;
+  double buoyancyCoeffs[3];
+
+  // MatrixXd MomentCoeffs_eig;
+
+  // Rotation Matrices: world to body, and body to world
+  // Angular Velocity
+  tf::Matrix3x3 R_w2b, R_b2w;
+  tf::Vector3 euler_deg, euler_rpy, ang_v;          
+  geometry_msgs::Vector3Stamped buoyancy_pos;
+  double buoyancy_depth_thresh;
 
   // Locate Buoyancy EOMs
   ceres::Problem buoyancyProblem;
@@ -49,9 +103,14 @@ class ThrusterController
   ceres::Solver::Summary buoyancySummary;
 
  public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW // Have to include this one if fixed eigen vectors will be applied
+
   ThrusterController(char **argv);
   template <typename T>
   void LoadParam(std::string param, T &var);
+  void LoadVehicleProperties();
+  void SetThrusterCoeffs();
+  // void SetBuoyancyCoeffs();
   void InitThrustMsg();
   void DynamicReconfigCallback(riptide_controllers::VehiclePropertiesConfig &config, uint32_t levels);
   void ImuCB(const riptide_msgs::Imu::ConstPtr &imu_msg);
@@ -60,17 +119,78 @@ class ThrusterController
   void Loop();
 };
 
-//***** Below are all the variables that are needed for ceres *****///////////////////////////////
-// **Please keep these in case they get deleted from the vehicle_properties.yaml file
-/*#define Ixx 0.52607145
-#define Iyy 1.50451601
-#define Izz 1.62450600*/
-double Ixx, Iyy, Izz;
+class EOM {
+  private:
+  int *numThrusters;
+  double *mass_inertia, *weightLoad, *transportThm, *command;
+  MatrixXd ThrusterCoeffs;
 
-struct vector {
-  double x;
-  double y;
-  double z;
+  public:
+  EOM(int* num, const Ref<const MatrixXd> &ThrusterCoeffsIn, double* inertiaIn, double* weightLoadIn, double* transportThmIn, double* commandIn)
+  {
+    numThrusters = num;
+    mass_inertia = inertiaIn;
+    weightLoad = weightLoadIn;
+    transportThm = transportThmIn;
+    command = commandIn;
+    ThrusterCoeffs = ThrusterCoeffsIn;
+  }
+
+  template <typename T>
+  bool operator()(const T *const forces, T* residual) const {
+    for (int i = 0; i < 6; i++) {
+      residual[i] = T(0);
+
+      for (int j = 0; j < *numThrusters; j++) {
+        residual[i] = residual[i] + T(ThrusterCoeffs(i,j)) * forces[j];
+      }
+
+      residual[i] = residual[i] + T(weightLoad[i]) + T(transportThm[i]);
+      residual[i] = residual[i] / T(mass_inertia[i]) - T(command[i]);
+    }
+    return true;
+  }
+};
+
+class tuneCOB {
+  private:
+  int *numThrusters;
+  double *mass_inertia, *weightLoad, *transportThm, *command, *forces, *buoyancyCoeffs;
+  MatrixXd Thrusters;
+  Vector3d Fb;
+
+  public:
+  tuneCOB(int* num, const Ref<const MatrixXd> &ThrustersIn, double *inertiaIn, double* weightLoadIn, double* transportThmIn, double* commandIn, double* forcesIn, double* buoyancyCoeffsIn) {
+    numThrusters = num;
+    mass_inertia = inertiaIn;
+    weightLoad = weightLoadIn;
+    transportThm = transportThmIn;
+    command = commandIn;
+    forces = forcesIn;
+    Thrusters = ThrustersIn;
+    buoyancyCoeffs = buoyancyCoeffsIn;
+  }
+
+  template <typename T>
+  bool operator()(const T *const pos_buoyancy, T* residual) const {
+    for (int i = 0; i < 3; i ++) {
+      residual[i] = T(0);
+      for (int j = 0; j < *numThrusters; j++) {
+        residual[i] = residual[i] + T(Thrusters(j, i)) * forces[j];
+      }
+      if (i == 0) {
+        residual[i] = residual[i] + buoyancyCoeffs[1] * (-1) * pos_buoyancy[2] + buoyancyCoeffs[2] * pos_buoyancy[1];
+      }
+      else if (i == 1) {
+        residual[i] = residual[i] + buoyancyCoeffs[0] * pos_buoyancy[2] + buoyancyCoeffs[2] * (-1) * pos_buoyancy[0];
+      }
+      else if (i == 2) {
+        residual[i] = residual[i] + buoyancyCoeffs[0] * (-1) * pos_buoyancy[1] + buoyancyCoeffs[1] * pos_buoyancy[0];
+      }
+      residual[i] = residual[i] + T(transportThm[i + 3]);
+      residual[i] = residual[i] / T(mass_inertia[i + 3]) - T(command[i + 3]);
+    }
+  }
 };
 
 // Thrust limits (N):
@@ -84,172 +204,6 @@ struct vector {
 double MIN_THRUST = -24.0;
 double MAX_THRUST = 24.0;
 
-// Vehicle mass (kg):
-// Updated 5-15-18
-double mass;
-double weight = mass*GRAVITY;
-
-// Vehcile volume (m^3)
-// TODO: Get this value from model
-// Updated on 5/11/18
-double volume;
-double buoyancy = volume * WATER_DENSITY * GRAVITY;
-
-/*// Moments of inertia (kg*m^2)
-double Ixx = 0.52607145;
-double Iyy = 1.50451601;
-double Izz = 1.62450600;*/
-
-// Acceleration commands (m/s^):
-double cmdSurge = 0.0;
-double cmdSway = 0.0;
-double cmdHeave = 0.0;
-double cmdRoll = 0.0;
-double cmdPitch = 0.0;
-double cmdYaw = 0.0;
-
-// Solved Thruster Forces
-double surge_port_lo, surge_stbd_lo;
-double sway_fwd, sway_aft;
-double heave_port_aft, heave_stbd_aft, heave_stbd_fwd, heave_port_fwd;
-
-// Thruster Status
-bool enableSPL, enableSSL, enableSWF, enableSWA, enableHPF, enableHSF, enableHPA, enableHSA;
-
-// Buoyancy Variables
-bool isBuoyant;
-double pos_buoyancy_x, pos_buoyancy_y, pos_buoyancy_z;
-double buoyancy_depth_thresh;
-
-// Rotation Matrices: world to body, and body to world
-// Angular Velocity
-tf::Matrix3x3 R_w2b, R_b2w;
-tf::Vector3 euler_deg, euler_rpy, ang_v;
-
-// Debug variables
-geometry_msgs::Vector3Stamped buoyancy_pos;
-
-/*** Thruster Positions ***/
-// Positions are in meters relative to the center of mass (can be neg. or pos.)
-vector pos_surge_port_lo;
-vector pos_surge_stbd_lo;
-vector pos_sway_fwd;
-vector pos_sway_aft;
-vector pos_heave_port_fwd;
-vector pos_heave_port_aft;
-vector pos_heave_stbd_fwd;
-vector pos_heave_stbd_aft;
-
-// Buoyancy Location
-vector pos_buoyancy;
-
-/*** EQUATIONS ***/////////////////////////////////////////////////////////////
-// These equations solve for linear/angular acceleration in all axes
-
-// Linear Equations
-struct surge
-{
-  template <typename T>
-  bool operator()(const T *const surge_port_lo, const T *const surge_stbd_lo, T *residual) const
-  {
-    residual[0] = (surge_port_lo[0] + surge_stbd_lo[0] +
-                  (T(R_w2b.getRow(0).z()) * (T(buoyancy) - T(weight))*T(isBuoyant))) / T(mass) -
-                  T(cmdSurge);
-    return true;
-  }
-};
-
-struct sway
-{
-  template <typename T>
-  bool operator()(const T *const sway_fwd, const T *const sway_aft, T *residual) const
-  {
-    residual[0] = (sway_fwd[0] + sway_aft[0] +
-                  (T(R_w2b.getRow(1).z()) * (T(buoyancy) - T(weight))*T(isBuoyant))) / T(mass) -
-                  T(cmdSway);
-    return true;
-  }
-};
-
-struct heave
-{
-  template <typename T>
-  bool operator()(const T *const heave_port_fwd, const T *const heave_stbd_fwd,
-                  const T *const heave_port_aft, const T *const heave_stbd_aft, T *residual) const
-  {
-
-      residual[0] = (heave_port_fwd[0] + heave_stbd_fwd[0] + heave_port_aft[0] + heave_stbd_aft[0] +
-                    (T(R_w2b.getRow(2).z()) * (T(buoyancy) - T(weight))*T(isBuoyant))) / T(mass) -
-                    T(cmdHeave);
-    return true;
-  }
-};
-
-// Angular equations
-
-// Roll
-// Thrusters contributing to a POSITIVE moment: sway_fwd, sway_aft, heave_port_fwd, heave_port_aft
-// Thrusters contributting to a NEGATIVE moment: heave_stbd_fwd, heave_stbd_aft
-// Buoyancy Y and Z components produce moments about x-axis
-struct roll
-{
-  template <typename T>
-  bool operator()(const T *const sway_fwd, const T *const sway_aft,
-                  const T *const heave_port_fwd, const T *const heave_stbd_fwd,
-                  const T *const heave_port_aft, const T *const heave_stbd_aft, T *residual) const
-  {
-    residual[0] = ((T(R_w2b.getRow(1).z()) * T(buoyancy) * T(-pos_buoyancy.z) +
-                  T(R_w2b.getRow(2).z()) * T(buoyancy) * T(pos_buoyancy.y))*T(isBuoyant) +
-                  sway_fwd[0] * T(-pos_sway_fwd.z) + sway_aft[0] * T(-pos_sway_aft.z) +
-                  heave_port_fwd[0] * T(pos_heave_port_fwd.y) + heave_stbd_fwd[0] * T(pos_heave_stbd_fwd.y) +
-                  heave_port_aft[0] * T(pos_heave_port_aft.y) + heave_stbd_aft[0] * T(pos_heave_stbd_aft.y) -
-                  ((T(ang_v.z()) * T(ang_v.y())) * (T(Izz) - T(Iyy)))) / T(Ixx) -
-                  T(cmdRoll);
-    return true;
-  }
-};
-
-// Pitch
-// Thrusters contributing to a POSITIVE moment: heave_port_aft, heave_stbd_aft
-// Thrusters contributting to a NEGATIVE moment: surge_port_lo, surge_stbd_lo, heave_port_fwd, heave_stbd_fwd
-// Buoyancy X and Z components produce moments about y-axis
-struct pitch
-{
-  template <typename T>
-  bool operator()(const T *const surge_port_lo, const T *const surge_stbd_lo,
-                  const T *const heave_port_fwd, const T *const heave_stbd_fwd,
-                  const T *const heave_port_aft, const T *const heave_stbd_aft, T *residual) const
-  {
-    residual[0] = ((T(R_w2b.getRow(0).z()) * T(buoyancy) * T(pos_buoyancy.z) +
-                  T(R_w2b.getRow(2).z()) * T(buoyancy) * T(-pos_buoyancy.x))*T(isBuoyant) +
-                  surge_port_lo[0] * T(pos_surge_port_lo.z) + surge_stbd_lo[0] * T(pos_surge_stbd_lo.z) +
-                  heave_port_fwd[0] * T(-pos_heave_port_fwd.x) + heave_stbd_fwd[0] * T(-pos_heave_stbd_fwd.x) +
-                  heave_port_aft[0] * T(-pos_heave_port_aft.x) + heave_stbd_aft[0] * T(-pos_heave_stbd_aft.x) -
-                  ((T(ang_v.x()) * T(ang_v.z())) * (T(Ixx) - T(Izz)))) / T(Iyy) -
-                  T(cmdPitch);
-    return true;
-  }
-};
-
-// Yaw
-// Thrusters contributing to a POSITIVE moment: surge_stbd_lo, sway_fwd
-// Thrusters contributting to a NEGATIVE moment: surge_port_lo, sway_aft
-// Buoyancy X and Y components produce moments about z-axis
-struct yaw
-{
-  template <typename T>
-  bool operator()(const T *const surge_port_lo, const T *const surge_stbd_lo,
-                  const T *const sway_fwd, const T *const sway_aft, T *residual) const
-  {
-    residual[0] = ((T(R_w2b.getRow(0).z()) * T(buoyancy) * T(-pos_buoyancy.y) +
-                  T(R_w2b.getRow(1).z()) * T(buoyancy) * T(pos_buoyancy.x))*T(isBuoyant) +
-                  surge_port_lo[0] * T(-pos_surge_port_lo.y) + surge_stbd_lo[0] * T(-pos_surge_stbd_lo.y) +
-                  sway_fwd[0] * T(pos_sway_fwd.x) + sway_aft[0] * T(pos_sway_aft.x) -
-                  ((T(ang_v.y()) * T(ang_v.x())) * (T(Iyy) - T(Ixx)))) / T(Izz) -
-                  T(cmdYaw);
-    return true;
-  }
-};
 
 // NOTE: It seems that ceres already tries to minimze all outputs as it solves.
 // Hence, it seems unnecessary to add two more equations to create a
@@ -267,6 +221,8 @@ struct yaw
 // Thrusters contributing to a POSITIVE moment: sway_fwd, sway_aft, heave_port_fwd, heave_port_aft
 // Thrusters contributting to a NEGATIVE moment: heave_stbd_fwd, heave_stbd_aft
 // Buoyancy Y and Z components produce moments about x-axis
+
+/*
 struct tuneRoll
 {
   template <typename T>
@@ -319,6 +275,7 @@ struct tuneYaw
   }
 };
 
+*/
 /************************** Reconfigure Active Thrusters **********************/
 // These structs are used only if a thruster is down (problem with the copro,
 // thruster itself, etc.). They will force ceres to set their thrust output to

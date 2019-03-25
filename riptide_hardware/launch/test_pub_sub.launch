@@ -1,0 +1,12 @@
+<launch>
+  <arg name = "x" default = "1"/>
+  <arg name = "y" default = "2"/>
+  <arg name = "z" default = "3"/>
+
+  <node pkg="riptide_hardware" type="test_pub_sub" name="test_pub_sub" output = "screen">
+    <param name = "x" type = "int" value="$(arg x)" />
+    <param name = "y" type = "int" value="$(arg y)" />
+    <param name = "z" type = "int" value="$(arg z)" />
+    
+  </node>
+</launch>
