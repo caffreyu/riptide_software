@@ -71,11 +71,3 @@ endif()
 add_executable(imu_processor src/imu_processor.cpp)
 target_link_libraries(imu_processor ${catkin_LIBRARIES})
 add_dependencies(imu_processor ${catkin_EXPORTED_TARGETS})
-
-add_executable(test_pub_sub src/test_pub_sub.cpp)
-target_link_libraries(test_pub_sub ${catkin_LIBRARIES})
-add_dependencies(test_pub_sub ${catkin_EXPORTED_TARGETS})
-
-add_executable(test_sub_pub src/test_sub_pub.cpp)
-target_link_libraries(test_sub_pub ${catkin_LIBRARIES})
-add_dependencies(test_sub_pub ${catkin_EXPORTED_TARGETS})

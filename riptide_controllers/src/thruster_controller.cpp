@@ -198,18 +198,18 @@ void ThrusterController::ImuCB(const riptide_msgs::Imu::ConstPtr &imu_msg)
   R_w2b = R_b2w.transpose(); //World to body rotations --> body_vector = R_w2b * world_vector
 
   //Get angular velocity and convert to [rad/s]
-  vector3MsgToTF(imu_msg->ang_vel, ang_v);
+  vector3MsgToTF(imu_msg->ang_vel_rad, ang_v);
   ang_v.setValue(ang_v.x()*PI/180, ang_v.y()*PI/180, ang_v.y()*PI/180);
 
   // Data for the new EoM
   Weight = Mass * GRAVITY;
   Buoyancy = Volume * GRAVITY * WATER_DENSITY;
 
-  float phi = imu_msg->euler_rpy.x * PI / 180;
-  float theta = imu_msg->euler_rpy.y * PI / 180;
-  float p = imu_msg->ang_vel.x;
-  float q = imu_msg->ang_vel.y;
-  float r = imu_msg->ang_vel.z;
+  float phi = imu_msg->rpy_deg.x * PI / 180;
+  float theta = imu_msg->rpy_deg.y * PI / 180;
+  float p = imu_msg->ang_vel_deg.x;
+  float q = imu_msg->ang_vel_deg.y;
+  float r = imu_msg->ang_vel_deg.z;
 
   transportThm[0] = 0;
   transportThm[1] = 0;

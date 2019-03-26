@@ -1,8 +1,9 @@
-float32 surge_port_lo
-float32 surge_stbd_lo
+float32 heave_port_fwd
+float32 heave_port_aft
+float32 heave_stbd_fwd
+float32 heave_stbd_aft
 float32 sway_fwd
 float32 sway_aft
-float32 heave_port_fwd
-float32 heave_stbd_fwd
-float32 heave_port_aft
-float32 heave_stbd_aft
+float32 surge_port_lo
+float32 surge_stbd_lo
+
