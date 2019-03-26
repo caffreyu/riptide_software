@@ -18,7 +18,6 @@ add_message_files(
     Pwm.msg
     PwmStamped.msg
     Imu.msg
-    ImuVerbose.msg
     SwitchState.msg
     TaskAlignment.msg
     GateData.msg
@@ -31,7 +30,8 @@ add_message_files(
     AlignmentCommand.msg
     DepthCommand.msg
     AttitudeCommand.msg
-    Acoustics.msg
+    AcousticsStatus.msg
+    AcousticsCommand.msg
     Pneumatics.msg
     Constants.msg
     ThrusterResiduals.msg

@@ -1,0 +1,70 @@
+# This file aims to define the locations and other properties of 
+# thrusters and the robot
+# All dimensions in [m]
+
+Properties: {
+  Mass: 36.1, # [kg]
+  Volume: 0.0386, # [m^3]
+  COB: [0.0205, 0.0, -0.04], #[m]
+  Inertia: [0.69, 2.62, 2.51], # [kg-m^2]
+  # All thrusters were assumed to point in +x direction
+  # 03/17: Data about yaw and pitch are for the old system
+  Thrusters: [
+    {
+      id: 0,
+      name: "HPF",
+      locations: [0.430146, -0.176002, -0.114335, 0.0, 90.0],
+      enabled: true,
+    },
+
+    {
+      id: 1,
+      name: "HPA",
+      locations: [-0.408054, -0.176002, -0.114335, 0.0, 90.0],
+      enabled: true,
+    },
+
+    {
+      id: 2,
+      name: "HSF",
+      locations: [0.430146, 0.176002, -0.114335, 0.0, 90.0],
+      enabled: true,
+    },
+
+    {
+      id: 3,
+      name: "HSA",
+      locations: [-0.408054, 0.176002, -0.114335, 0.0, 90.0],
+      enabled: true,
+    },
+
+    {
+      id: 4,
+      name: "SWF",
+      locations: [0.480106, 0.0, 0.125705, -90.0, 0.0],
+      enabled: true,
+    },
+
+    {
+      id: 5,
+      name: "SWA",
+      locations: [-0.458014, 0.0, 0.125705, -90.0, 0.0],
+      enabled: true,
+    },
+
+    {
+      id: 6,
+      name: "SPL",
+      locations: [0.306432, -0.279, 0.012802, 0.0, 0.0],
+      enabled: true,
+    },
+
+    {
+      id: 7,
+      name: "SSL",
+      locations: [0.306432, 0.279, 0.012802, 0.0, 0.0],
+      enabled: true,
+    }
+  ],
+  
+}
