@@ -32,6 +32,7 @@ AlignmentController::AlignmentController() : nh("~") {
     y_pid.init(sway, false);
     z_pid.init(heave, false);
 
+    bbox_sub = nh.subscribe<darknet_ros_msgs::BoundingBoxes>("/state/bboxes", 1, &AlignmentController::DarknetCB, this);
     object_sub = nh.subscribe<riptide_msgs::Object>("/state/object", 1, &AlignmentController::ObjectCB, this);
     alignment_cmd_sub = nh.subscribe<riptide_msgs::AlignmentCommand>("/command/alignment", 1, &AlignmentController::CommandCB, this);
     depth_sub = nh.subscribe<riptide_msgs::Depth>("/state/depth", 1, &AlignmentController::DepthCB, this);
@@ -60,6 +61,7 @@ AlignmentController::AlignmentController() : nh("~") {
     bbox_control = rc::CONTROL_BBOX_WIDTH;
     alignment_plane = rc::PLANE_YZ;
     current_depth = 0;
+    obj_name = "";
     AlignmentController::InitMsgs();
 
     // IIR LPF Variables
@@ -130,7 +132,7 @@ void AlignmentController::UpdateError() {
     last_error_dot.y = error_dot.y;
 
     cmd_force_y.data = y_pid.computeCommand(error.y, error_dot.y, sample_duration);
-    cmd_force_y.data = min(max(cmd_force_y.data, -40.0), 40.0);
+    cmd_force_y.data = min(max(cmd_force_y.data, -30.0), 30.0);
     y_pub.publish(cmd_force_y);
   }
 
@@ -150,7 +152,7 @@ void AlignmentController::UpdateError() {
     last_error_dot.x = error_dot.x;
 
     cmd_force_x.data = x_pid.computeCommand(error.x, error_dot.x, sample_duration);
-    cmd_force_x.data = min(max(cmd_force_x.data, -40.0), 40.0);
+    cmd_force_x.data = min(max(cmd_force_x.data, -30.0), 30.0);
     x_pub.publish(cmd_force_x);
   }
 
@@ -190,19 +192,32 @@ double AlignmentController::SmoothErrorIIR(double input, double prev) {
   return (alpha*input + (1-alpha)*prev);
 }
 
+void AlignmentController::DarknetCB(const darknet_ros_msgs::BoundingBoxes::ConstPtr &bbox) {
+  for (unsigned int a = 0; a < sizeof(bbox.bounding_boxes); a ++) {
+    if (bbox.bounding_boxes[a].Class == obj_name) {
+      obj_bbox = bbox.bounding_boxes[a];
+      obj_bbox_width = obj_bbox.xmax - obj_bbox.xmin;
+      obj_bbox_height = obj_bbox.ymax - obj_bbox.ymin;
+    }
+  }
+}
+
 // UpdateError should ONLY be called in this callback b/c this is the only thing
 // that signals a new "sensor" input.
 void AlignmentController::ObjectCB(const riptide_msgs::Object::ConstPtr &obj_msg) {
   timer.stop();
+  obj_name = obj_msg->object_name;
   obj_pos.x = obj_msg->pos.x;
   obj_pos.y = obj_msg->pos.y;
   obj_pos.z = obj_msg->pos.z;
 
   // This if-block handles bbox control (width or height)
   if(bbox_control == rc::CONTROL_BBOX_WIDTH)
-    obj_bbox_dim = obj_msg->bbox_width;
+    // obj_bbox_dim = obj_msg->bbox_width;
+    obj_bbox_dim = obj_bbox_width;
   else
-    obj_bbox_dim = obj_msg->bbox_height;
+    // obj_bbox_dim = obj_msg->bbox_height;
+    obj_bbox_dim = obj_bbox_height;
 
   // Update status msg
   status_msg.y.current = obj_pos.y;

@@ -22,6 +22,7 @@ find_package(catkin REQUIRED
     tf
     control_toolbox
     actionlib_msgs
+    darknet_ros_msgs
 )
 
 find_package(Ceres REQUIRED)

@@ -5,6 +5,8 @@
 #include "control_toolbox/pid.h"
 #include "geometry_msgs/Vector3.h"
 #include "std_msgs/Float64.h"
+#include "std_msgs/String.h"
+#include "std_msgs/Int64.h"
 #include "riptide_msgs/Object.h"
 #include "riptide_msgs/AlignmentCommand.h"
 #include "riptide_msgs/TaskInfo.h"
@@ -13,6 +15,9 @@
 #include "riptide_msgs/ResetControls.h"
 #include "riptide_msgs/ControlStatusLinear.h"
 #include "riptide_msgs/Constants.h"
+#include "darknet_ros_msgs/BoundingBoxes.h"
+#include "darknet_ros_msgs/BoundingBox.h"
+
 using namespace std;
 typedef riptide_msgs::Constants rc;
 
@@ -21,7 +26,7 @@ class AlignmentController
   private:
     // Comms
     ros::NodeHandle nh;
-    ros::Subscriber alignment_cmd_sub, object_sub, depth_sub, task_info_sub;
+    ros::Subscriber alignment_cmd_sub, object_sub, depth_sub, task_info_sub, bbox_sub;
     ros::Publisher x_pub, y_pub, depth_pub, status_pub;
     ros::Timer timer;
 
@@ -33,6 +38,9 @@ class AlignmentController
     control_toolbox::Pid x_pid, y_pid, z_pid;
     double cmd_heave;
     std_msgs::Float64 cmd_force_x, cmd_force_y;
+    std_msgs::String obj_name;
+    std_msgs::Int64 obj_bbox_width, obj_bbox_height;
+    darknet_ros_msgs::BoundingBox obj_bbox;
     riptide_msgs::DepthCommand depth_cmd;
 
     riptide_msgs::ControlStatusLinear status_msg;
@@ -44,6 +52,7 @@ class AlignmentController
     geometry_msgs::Vector3 error, error_dot, last_error_dot, last_error;
     geometry_msgs::Vector3 obj_pos, target_pos;
     double dt;
+
 
     ros::Time sample_start;
     ros::Duration sample_duration;
@@ -65,12 +74,13 @@ class AlignmentController
     AlignmentController();
     template <typename T>
     void LoadParam(string param, T &var);
+    void DarknetCB(const darknet_ros_msgs::BoundingBoxes::ConstPtr &bbox);
     void ObjectCB(const riptide_msgs::Object::ConstPtr &obj_msg);
     void DisableControllerTimer(const ros::TimerEvent& event);
     void CommandCB(const riptide_msgs::AlignmentCommand::ConstPtr &cmd);
     void DepthCB(const riptide_msgs::Depth::ConstPtr &depth_msg);
     void TaskInfoCB(const riptide_msgs::TaskInfo::ConstPtr& task_msg);
-    //void ResetCB(const riptide_msgs::ResetControls::ConstPtr &reset_msg);
+    void ResetCB(const riptide_msgs::ResetControls::ConstPtr &reset_msg);
  };
 
  #endif
