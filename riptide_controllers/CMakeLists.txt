@@ -33,6 +33,7 @@ generate_dynamic_reconfigure_options(
   cfg/VehicleProperties.cfg
   cfg/AttitudeController.cfg
   cfg/LinearController.cfg
+  cfg/AlignmentController.cfg
 )
 
 add_action_files(
@@ -80,10 +81,6 @@ cmake_host_system_information(RESULT _host_name QUERY HOSTNAME)
 add_executable(depth_controller src/depth_controller.cpp)
 target_link_libraries(depth_controller ${catkin_LIBRARIES})
 add_dependencies(depth_controller ${catkin_EXPORTED_TARGETS})
-
-add_executable(alignment_controller src/alignment_controller.cpp)
-target_link_libraries(alignment_controller ${catkin_LIBRARIES})
-add_dependencies(alignment_controller ${catkin_EXPORTED_TARGETS})
 
 add_executable(pwm_controller src/pwm_controller.cpp)
 target_link_libraries(pwm_controller ${catkin_LIBRARIES} yaml-cpp)
