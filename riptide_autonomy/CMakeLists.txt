@@ -14,13 +14,19 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   sensor_msgs
   actionlib_msgs
+  darknet_ros_msgs
 )
 
 add_action_files(
   DIRECTORY action
   FILES Prequalify.action
   GateTask.action
+  BuoyTask.action
+  DecapTask.action
   GoToFinals.action
+  Search.action
+  ExposeTask.action
+  GarlicTask.action
 )
 
 generate_messages(

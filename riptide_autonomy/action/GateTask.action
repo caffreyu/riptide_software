@@ -1,5 +1,5 @@
 #goal definition
-bool isLeft
+int32 isLeft
 ---
 #result definition
 ---

@@ -1,0 +1,7 @@
+#goal definition
+string obj
+---
+#result definition
+---
+#feedback
+int32[] sequence
